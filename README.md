@@ -2,9 +2,9 @@
 Aqua Actions
 
 # Aqua Image Scanner
-Create the relevant secrets in your repository for downloading the scanner image (AQUA_USERNAME, AQUA_PASSWORD) and the Aqua Console (AQUA_HOST, AQUA_TOKEN)
+Create the relevant secrets in your repository for downloading the scanner image (AQUA_USERNAME, AQUA_PASSWORD) and the Aqua Console (AQUA_HOST, AQUA_TOKEN)<br>
 Usage:
-```[bash]
+```[yaml]
       - name: Aqua Image Scanner
         uses: mulan04/aqua-actions/Aqua_Image_Scanner@v1
         with:
