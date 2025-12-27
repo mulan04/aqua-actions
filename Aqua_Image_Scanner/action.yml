@@ -18,11 +18,11 @@ inputs:
     required: false
     default: "10"
   run_args:
-    description: "Extra args passed to docker run (e.g. -e A=B -v ...)"
+    description: "Args passed to docker run"
     required: false
     default: ""
   scan_args:
-    description: "Command appended to docker run"
+    description: "Scan parameters"
     required: false
     default: ""
   logout:
@@ -40,14 +40,14 @@ runs:
           username: "${{ inputs.username }}"
           password: "${{ inputs.password }}"
 
-    - name: Pull image
+    - name: Pull Scanner image
       shell: bash
       run: |
         set -euo pipefail
         IMAGE="${{ inputs.registry }}/${{ inputs.scanner_image }}:${{ inputs.tag }}"
         docker pull "$IMAGE"
 
-    - name: Run container
+    - name: Run Scanner container
       shell: bash
       run: |
         set -euo pipefail
@@ -55,7 +55,7 @@ runs:
         # shellcheck disable=SC2086
         docker run --rm ${{ inputs.run_args }} "$IMAGE" scan ${{ inputs.scan_args }}
 
-    - name: Logout
+    - name: Logout from registry
       if: ${{ inputs.logout == 'true' }}
       shell: bash
       run: |
