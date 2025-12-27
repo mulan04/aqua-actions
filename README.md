@@ -2,8 +2,8 @@
 Aqua Actions
 
 # Aqua Image Scanner
+Create the relevant secrets in your repository for downloading the scanner image (AQUA_USERNAME, AQUA_PASSWORD) and the Aqua Console (AQUA_HOST, AQUA_TOKEN)
 Usage:
-
 ```[bash]
       - name: Aqua Image Scanner
         uses: mulan04/aqua-actions/Aqua_Image_Scanner@v1
@@ -16,6 +16,7 @@ Usage:
             run_args: >-
               -v /var/run/docker.sock:/var/run/docker.sock
               -v /tmp:/tmp
+              -e BUILD_JOB_NAME=${{ github.repository }}
               -e BUILD_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
               -e BUILD_NUMBER=${{ github.sha }}
             scan_args: >-
@@ -31,5 +32,8 @@ Usage:
         uses: actions/upload-artifact@v4
         with:
           name: Aqua Scan Report
+          path: |
+            /tmp/out.html
+            /tmp/out.json
 ```
 Find the Aqua Scan Report in the Artifacts section of the BUILD_URL and at the configured AQUA_HOST in the CI/CD Scans tab
