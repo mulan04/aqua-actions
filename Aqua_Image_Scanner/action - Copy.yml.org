@@ -1,0 +1,63 @@
+name: "Aqua registry login + run image scanner"
+description: "Logs into private Aqua Docker registry and runs the image scanner from it"
+inputs:
+  registry:
+    description: "Scanner Registry hostname (e.g. registry.aquasec.com)"
+    required: true
+  username:
+    description: "Scanner Registry username"
+    required: true
+  password:
+    description: "Scanner Registry password"
+    required: true
+  scanner_image:
+    description: "Scanner Image name (e.g. scanner)"
+    required: true
+  tag:
+    description: "Scanner Image tag"
+    required: false
+    default: "10"
+  run_args:
+    description: "Extra args passed to docker run (e.g. -e A=B -v ...)"
+    required: false
+    default: ""
+  scan_args:
+    description: "Command appended to docker run"
+    required: false
+    default: ""
+  logout:
+    description: "Whether to docker logout after running"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Login to registry
+      uses: docker/login-action@v3
+      with:
+          registry: "${{ inputs.registry }}"
+          username: "${{ inputs.username }}"
+          password: "${{ inputs.password }}"
+
+    - name: Pull image
+      shell: bash
+      run: |
+        set -euo pipefail
+        IMAGE="${{ inputs.registry }}/${{ inputs.scanner_image }}:${{ inputs.tag }}"
+        docker pull "$IMAGE"
+
+    - name: Run container
+      shell: bash
+      run: |
+        set -euo pipefail
+        IMAGE="${{ inputs.registry }}/${{ inputs.scanner_image }}:${{ inputs.tag }}"
+        # shellcheck disable=SC2086
+        docker run --rm ${{ inputs.run_args }} "$IMAGE" scan ${{ inputs.scan_args }}
+
+    - name: Logout
+      if: ${{ inputs.logout == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker logout "${{ inputs.registry }}" || true

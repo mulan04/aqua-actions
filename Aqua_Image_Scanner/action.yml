@@ -1,70 +1,6 @@
-# name: 'Aqua Scan'
-# description: 'Reusable Aqua security scan steps for workflows'
-# inputs:
-  # image-repo:
-    # description: 'Docker image repository to scan with Aqua'
-    # required: true
-  # image-to-scan:
-    # description: 'Docker image to scan with Aqua'
-    # required: true
-  # aquasec-scanner-tag:
-    # description: 'Tag of the aquasec scanner to use'
-    # required: true
-  # aquasec-uid:
-    # description: 'Aqua Security user ID'
-    # required: true
-  # aquasec-scanner-token:
-    # description: 'Aqua Security scanner token'
-    # required: true
-  # aqua-trivy-exit-on-vulns:
-    # description: 'Exit with error if vulnerabilities are found'
-    # required: false
-    # default: '1'
-
-# runs:
-  # using: "composite"
-
-  # steps:
-    # - name: Pull Aqua Scanner Image
-      # run: |
-        # docker pull ghcr.io/sage-erp-x3/aquasec-scanner:${{ inputs.aquasec-scanner-tag }}
-      # shell: bash
-    # - name: Run Aqua Security Scan
-      # run: |
-        # docker run -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd)/aqua-scan-results:/tmp \
-          # ghcr.io/sage-erp-x3/aquasec-scanner:${{ inputs.aquasec-scanner-tag }} scan \
-          # --host https://${{ inputs.aquasec-uid }}.cloud.aquasec.com/ \
-          # --token "${{ inputs.aquasec-scanner-token }}" \
-          # --local ${{ inputs.image-repo }}/${{ inputs.image-to-scan }} \
-          # --register \
-          # --no-verify \
-          # --registry "X3 cloud dev" \
-          # --show-will-not-fix \
-          # --jsonfile /tmp/out.json \
-          # --htmlfile /tmp/out.html
-      # shell: bash
-    # - name: Check vulnerability scan results
-      # run: |
-        # if [ -f $(pwd)/aqua-scan-results/out.json ]; then
-          # echo "Aqua Trivy scan results file found"
-          # echo "Trivy scan results found, checking for vulnerabilities..."
-          # trivyResults=$(jq '.vulnerability_summary.total' $(pwd)/aqua-scan-results/out.json)
-          # if [ $trivyResults -gt 0 ]; then
-            # echo "### Aqua Trivy scan results for ${{ inputs.image-to-scan }}" >> $GITHUB_STEP_SUMMARY
-            # jq -r '[.resources[] | .vulnerabilities[]? | "\(.name): \(.description)"] | join("\n")' $(pwd)/aqua-scan-results/out.json >> $GITHUB_STEP_SUMMARY
-            # echo "Vulnerabilities found in the image. Please check the Trivy scan results."
-            # exit ${{ inputs.aqua-trivy-exit-on-vulns }}
-          # else
-            # echo "No vulnerabilities found in the image."
-          # fi
-        # else
-          # echo "No Trivy scan results file found."
-        # fi
-      # shell: bash
-
-
 name: "Aqua registry login + run image scanner"
-description: "Logs into a private Aqua Docker registry and runs the image scanner from it"
+description: "Logs into private Aqua Docker registry, runs the image scanner, and uploads scan results"
+
 inputs:
   registry:
     description: "Scanner Registry hostname (e.g. registry.aquasec.com)"
@@ -90,8 +26,31 @@ inputs:
     description: "Command appended to docker run"
     required: false
     default: ""
+
+  # New: upload configuration
+  artifact_name:
+    description: "Name of the uploaded artifact"
+    required: false
+    default: "Aqua Scan Report"
+  report_paths:
+    description: "Paths to scan reports (multiline allowed)"
+    required: false
+    default: |
+      /tmp/out.html
+      /tmp/out.json
+  if_no_files_found:
+    description: "upload-artifact behavior when no files found: warn|error|ignore"
+    required: false
+    default: "warn"
+
   logout:
     description: "Whether to docker logout after running"
+    required: false
+    default: "true"
+
+  # New: whether to fail the action if the scan failed (after uploading artifacts)
+  fail_on_scan_error:
+    description: "Fail the action if scanner exits non-zero (after uploading)"
     required: false
     default: "true"
 
@@ -101,9 +60,9 @@ runs:
     - name: Login to registry
       uses: docker/login-action@v3
       with:
-          registry: "${{ inputs.registry }}"
-          username: "${{ inputs.username }}"
-          password: "${{ inputs.password }}"
+        registry: "${{ inputs.registry }}"
+        username: "${{ inputs.username }}"
+        password: "${{ inputs.password }}"
 
     - name: Pull image
       shell: bash
@@ -112,27 +71,42 @@ runs:
         IMAGE="${{ inputs.registry }}/${{ inputs.scanner_image }}:${{ inputs.tag }}"
         docker pull "$IMAGE"
 
-    - name: Run container
+    # Run scan but don't hard-fail the composite yet; record exit code
+    - name: Run container (capture exit code)
+      id: scan
       shell: bash
       run: |
         set -euo pipefail
         IMAGE="${{ inputs.registry }}/${{ inputs.scanner_image }}:${{ inputs.tag }}"
+
+        set +e
         # shellcheck disable=SC2086
         docker run --rm ${{ inputs.run_args }} "$IMAGE" scan ${{ inputs.scan_args }}
+        rc=$?
+        set -e
+
+        echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+    # Always upload results, even if scan step failed
+    - name: Upload scan results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.report_paths }}
+        if-no-files-found: ${{ inputs.if_no_files_found }}
 
     - name: Logout
-      if: ${{ inputs.logout == 'true' }}
+      if: ${{ always() && inputs.logout == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
         docker logout "${{ inputs.registry }}" || true
 
-
-
-
-
-    # # Scan the Image
-    # - name: Run the scanner
-      # run: |
-        # set -euo pipefail
-        # docker run --rm -v /var/run/docker.sock:/var/run/docker.sock registry.aquasec.com/scanner:10 scan --host ${{ secrets.AQUA_HOST }} --local aquasupportemea/insecure-bank-app:${{ github.sha }} --token ${{ secrets.AQUA_TOKEN }} --layer-vulnerabilities --no-verify --html > .github/workflows/scan-output.html
+    # Optionally fail the composite after upload if scan failed
+    - name: Fail if scan failed
+      if: ${{ always() && inputs.fail_on_scan_error == 'true' && steps.scan.outputs.exit_code != '0' }}
+      shell: bash
+      run: |
+        echo "Aqua scan failed with exit code: ${{ steps.scan.outputs.exit_code }}"
+        exit ${{ steps.scan.outputs.exit_code }}
